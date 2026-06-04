@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Invasion</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #eeeeee;
+        text-align: center;
+        margin: 20px;
+    }
+
+    canvas {
+        background: #f5f5f5;
+        border: 1px solid #cccccc;
+    }
+
+    button {
+        margin: 4px;
+        padding: 6px 14px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .actif {
+        background: #bbbbbb;
+    }
+
+    #infos {
+        margin-top: 12px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+
+    #message {
+        margin-top: 6px;
+        font-size: 16px;
+        font-weight: bold;
+    }
+
+    #fenetreRegles {
+        display: none;
+        position: fixed;
+        top: 8%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(760px, 90vw);
+        max-height: 80vh;
+        overflow-y: auto;
+        background: white;
+        border: 2px solid #555555;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+        padding: 18px 24px;
+        text-align: left;
+        z-index: 1000;
+    }
+
+    #fenetreRegles h3 {
+        text-align: center;
+        margin-top: 0;
+    }
+
+    #fenetreRegles li {
+        margin-bottom: 10px;
+        line-height: 1.35;
+    }
+
+    #fondRegles {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.25);
+        z-index: 999;
+    }
+
+</style>
+</head>
+<body>
+
+<h2>INVASION</h2>
+
+<div>
+    <button id="btnPoser" class="actif">Poser</button>
+    <button id="btnDeplacer">Déplacer</button>
+    <button id="btnRetirer">Retirer</button>
+    <button id="btnRegles">Règles du jeu</button>
+</div>
+
+<div id="parametres" style="margin: 10px 0;">
+    Lignes :
+    <input id="champ_nb_y" type="number" value="6" min="3" max="15" style="width:55px;">
+
+    Colonnes :
+    <input id="champ_nb_x" type="number" value="6" min="3" max="15" style="width:55px;">
+
+    Relais :
+    <span id="affichage_relais" style="display:inline-block; width:35px; font-weight:bold;">12</span>
+
+    <button id="btnAppliquer">Créer la partie</button>
+</div>
+
+
+<div id="fondRegles"></div>
+
+<div id="fenetreRegles">
+    <h3>Règles du jeu</h3>
+
+    <ul>
+        <li>Le but du jeu est de relier sa base à la base du joueur adverse.</li>
+        <li>Pour progresser vers la ligne adverse, un pion doit rester relié à sa base par la chaîne d’attaque de son joueur.</li>
+        <li>Un pion peut se poser, se déplacer ou être retiré, toujours par clic gauche pour le désigner et clic droit pour le déposer.</li>
+        <li>La chaîne d’attaque est la plus longue suite continue de segments validés reliant un pion à sa base.</li>
+        <li>Un alignement de trois pions d’une même couleur valide les segments qui les relient.</li>
+        <li>Le pion en tête de la ligne d’attaque, donc le plus proche de la ligne adverse, est sur fond bleu.</li>
+        <li>Les pions peuvent quitter la chaîne d’attaque, se déplacer ou être retirés librement. Un pion retiré est restitué dans le quota de pions de départ.</li>
+        <li>Un pion peut se poser sur un pion adverse et peut couper ainsi la liaison du pion de tête avec sa base. Le pion adverse est restitué dans le quota de départ.</li>
+    </ul>
+
+    <div style="text-align:center; margin-top:14px;">
+        <button id="btnFermerRegles">Fermer</button>
+    </div>
+</div>
+
+<canvas id="plateau" width="560" height="560"></canvas>
+
+<div id="infos"></div>
+<div id="message"></div>
+
+<script>
+const CONFIG = {
+    nb_x: 6,
+    nb_y: 6,
+    taille: 70,
+    relais_depart: 12
+};
+
+const COULEURS = {
+    rouge: "#ff6666",
+    vert: "#55aa66"
+};
+
+const JOUEURS = ["rouge", "vert"];
+
+const canvas = document.getElementById("plateau");
+const ctx = canvas.getContext("2d");
+
+const btnPoser = document.getElementById("btnPoser");
+const btnDeplacer = document.getElementById("btnDeplacer");
+const btnRetirer = document.getElementById("btnRetirer");
+const btnRegles = document.getElementById("btnRegles");
+const btnFermerRegles = document.getElementById("btnFermerRegles");
+const fenetreRegles = document.getElementById("fenetreRegles");
+const fondRegles = document.getElementById("fondRegles");
+const btnAppliquer = document.getElementById("btnAppliquer");
+const champNbY = document.getElementById("champ_nb_y");
+const champNbX = document.getElementById("champ_nb_x");
+const affichageRelais = document.getElementById("affichage_relais");
+
+let noeuds = [];
+let routes = [];
+let adj = {};
+let baseRouge = null;
+let baseVert = null;
+
+let etat = {};
+let stock = {};
+let tripletsValides = { rouge: [], vert: [] };
+let connexionsTriplets = { rouge: [], vert: [] };
+let reseauxReliesBase = { rouge: [], vert: [] };
+let joueurActif = "rouge";
+let selection = null;
+let modeAction = "poser";
+let message = "Rouge commence. Mode poser.";
+
+
+
+function calculerRelaisDepart() {
+    const nbY = parseInt(champNbY.value);
+    const nbX = parseInt(champNbX.value);
+    return nbY + nbX;
+}
+
+function rafraichirRelaisAffiche() {
+    affichageRelais.textContent = calculerRelaisDepart();
+}
+
+champNbY.addEventListener("input", rafraichirRelaisAffiche);
+champNbX.addEventListener("input", rafraichirRelaisAffiche);
+
+function appliquerParametres() {
+    CONFIG.nb_y = parseInt(champNbY.value);
+    CONFIG.nb_x = parseInt(champNbX.value);
+    CONFIG.relais_depart = CONFIG.nb_y + CONFIG.nb_x;
+    rafraichirRelaisAffiche();
+
+    canvas.width = (CONFIG.nb_x + 2) * CONFIG.taille;
+    canvas.height = (CONFIG.nb_y + 2) * CONFIG.taille;
+
+    genererGraphe();
+    initialiserPartie();
+}
+
+btnAppliquer.addEventListener("click", appliquerParametres);
+
+
+function ouvrirRegles() {
+    fondRegles.style.display = "block";
+    fenetreRegles.style.display = "block";
+}
+
+function fermerRegles() {
+    fenetreRegles.style.display = "none";
+    fondRegles.style.display = "none";
+}
+
+btnRegles.addEventListener("click", ouvrirRegles);
+btnFermerRegles.addEventListener("click", fermerRegles);
+fondRegles.addEventListener("click", fermerRegles);
+
+// =====================================================
+// GRAPHE
+// =====================================================
+
+function genererGraphe() {
+    noeuds = [];
+    routes = [];
+    adj = {};
+
+    let prochainId = 1;
+    const grilleIds = {};
+
+    for (let row = 0; row <= CONFIG.nb_y; row++) {
+        for (let col = 0; col <= CONFIG.nb_x; col++) {
+            const x = CONFIG.taille + col * CONFIG.taille;
+            const y = CONFIG.taille + row * CONFIG.taille;
+
+            noeuds.push({
+                id: prochainId,
+                row: row,
+                col: col,
+                x: x,
+                y: y
+            });
+
+            grilleIds[`${row},${col}`] = prochainId;
+            prochainId++;
+        }
+    }
+
+    const routesTemp = [];
+
+    for (let row = 0; row < CONFIG.nb_y; row++) {
+        for (let col = 0; col < CONFIG.nb_x; col++) {
+            const hg = grilleIds[`${row},${col}`];
+            const hd = grilleIds[`${row},${col + 1}`];
+            const bg = grilleIds[`${row + 1},${col}`];
+            const bd = grilleIds[`${row + 1},${col + 1}`];
+
+            routesTemp.push([hg, hd]);
+            routesTemp.push([bg, bd]);
+            routesTemp.push([hg, bg]);
+            routesTemp.push([hd, bd]);
+        }
+    }
+
+    const deja = new Set();
+
+    for (const [a, b] of routesTemp) {
+        const r = [Math.min(a, b), Math.max(a, b)];
+        const cle = `${r[0]}-${r[1]}`;
+
+        if (!deja.has(cle)) {
+            deja.add(cle);
+            routes.push(r);
+        }
+    }
+
+    for (const [a, b] of routes) {
+        if (!adj[a]) adj[a] = [];
+        if (!adj[b]) adj[b] = [];
+        adj[a].push(b);
+        adj[b].push(a);
+    }
+
+    baseRouge = grilleIds[`${CONFIG.nb_y},${Math.floor(CONFIG.nb_x / 2)}`];
+    baseVert = grilleIds[`0,${Math.floor(CONFIG.nb_x / 2)}`];
+}
+
+function noeud(id) {
+    return noeuds[id - 1];
+}
+
+function voisins(id) {
+    return adj[id] || [];
+}
+
+// =====================================================
+// ETAT
+// =====================================================
+
+function initialiserPartie() {
+    etat = {};
+
+    stock = {
+        rouge: CONFIG.relais_depart,
+        vert: CONFIG.relais_depart
+    };
+
+    tripletsValides = {
+        rouge: [],
+        vert: []
+    };
+
+    connexionsTriplets = {
+        rouge: [],
+        vert: []
+    };
+
+    reseauxReliesBase = {
+        rouge: [],
+        vert: []
+    };
+
+    for (const n of noeuds) {
+        etat[n.id] = {
+            type: "normal",
+            owner: null,
+            actif: false,
+            dernierOwner: null
+        };
+    }
+
+    etat[baseRouge].type = "base";
+    etat[baseRouge].owner = "rouge";
+    etat[baseRouge].dernierOwner = "rouge";
+
+    etat[baseVert].type = "base";
+    etat[baseVert].owner = "vert";
+    etat[baseVert].dernierOwner = "vert";
+
+    joueurActif = "rouge";
+    selection = null;
+    modeAction = "poser";
+    message = "Rouge commence. Mode poser.";
+
+    recalculerReseaux();
+    actualiserTousLesTriplets();
+    rafraichirBoutons();
+    dessiner();
+}
+
+// =====================================================
+// RESEAU ACTIF
+// =====================================================
+
+function recalculerReseaux() {
+    for (const id in etat) {
+        etat[id].actif = false;
+    }
+
+    for (const joueur of JOUEURS) {
+        const bases = [];
+
+        for (const id in etat) {
+            const e = etat[id];
+
+            if (e.type === "base" && e.owner === joueur) {
+                bases.push(Number(id));
+            }
+        }
+
+        const file = [...bases];
+
+        while (file.length > 0) {
+            const pos = file.shift();
+
+            if (etat[pos].actif) {
+                continue;
+            }
+
+            etat[pos].actif = true;
+
+            for (const v of voisins(pos)) {
+                if (etat[v].owner === joueur) {
+                    file.push(v);
+                }
+            }
+        }
+    }
+}
+
+function adjacentReseauActif(pos, joueur) {
+    for (const v of voisins(pos)) {
+        if (
+            etat[v].owner === joueur &&
+            etat[v].actif
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function changerJoueur() {
+    joueurActif = joueurActif === "rouge" ? "vert" : "rouge";
+}
+
+function estJoueur(couleur) {
+    return JOUEURS.includes(couleur);
+}
+
+
+// =====================================================
+// TRIPLETS
+// =====================================================
+
+function chercherTriplets(joueur) {
+    const pions = [];
+
+    for (const id in etat) {
+        if (etat[id].owner === joueur) {
+            pions.push(Number(id));
+        }
+    }
+
+    const triplets = [];
+    const deja = new Set();
+
+    for (const a of pions) {
+        for (const b of pions) {
+            for (const c of pions) {
+
+                if (new Set([a, b, c]).size < 3) {
+                    continue;
+                }
+
+                if (
+                    voisins(a).includes(b) &&
+                    voisins(b).includes(c)
+                ) {
+                    const triple = [a, b, c].sort((x, y) => x - y);
+                    const cle = triple.join("-");
+
+                    if (!deja.has(cle)) {
+                        deja.add(cle);
+                        triplets.push(triple);
+                    }
+                }
+            }
+        }
+    }
+
+    return triplets;
+}
+
+function actualiserTripletsValides(joueur) {
+    tripletsValides[joueur] = chercherTriplets(joueur);
+}
+
+function actualiserTousLesTriplets() {
+    for (const joueur of JOUEURS) {
+        actualiserTripletsValides(joueur);
+    }
+
+    actualiserToutesLesConnexionsTriplets();
+}
+
+function connexionCle(a, b) {
+    const x = Math.min(a, b);
+    const y = Math.max(a, b);
+    return `${x}-${y}`;
+}
+
+function connexionsDepuisTriplets(joueur) {
+    const connexions = [];
+    const deja = new Set();
+
+    for (const triple of tripletsValides[joueur]) {
+        const [a, b, c] = triple;
+
+        if (voisins(a).includes(b)) {
+            const cle = connexionCle(a, b);
+            if (!deja.has(cle)) {
+                deja.add(cle);
+                connexions.push([Math.min(a, b), Math.max(a, b)]);
+            }
+        }
+
+        if (voisins(b).includes(c)) {
+            const cle = connexionCle(b, c);
+            if (!deja.has(cle)) {
+                deja.add(cle);
+                connexions.push([Math.min(b, c), Math.max(b, c)]);
+            }
+        }
+
+        if (voisins(a).includes(c)) {
+            const cle = connexionCle(a, c);
+            if (!deja.has(cle)) {
+                deja.add(cle);
+                connexions.push([Math.min(a, c), Math.max(a, c)]);
+            }
+        }
+    }
+
+    return connexions;
+}
+
+function actualiserConnexionsTriplets(joueur) {
+    connexionsTriplets[joueur] = connexionsDepuisTriplets(joueur);
+}
+
+function actualiserToutesLesConnexionsTriplets() {
+    for (const joueur of JOUEURS) {
+        actualiserConnexionsTriplets(joueur);
+    }
+
+    actualiserTousLesReseauxReliesBase();
+}
+
+function reseauRelieBase(joueur) {
+    const connexions = connexionsTriplets[joueur];
+
+    const base = joueur === "rouge" ? baseRouge : baseVert;
+
+    const reseau = [];
+    const aExplorer = [base];
+    const dejaVus = new Set();
+
+    while (aExplorer.length > 0) {
+        const courant = aExplorer.pop();
+
+        if (dejaVus.has(courant)) {
+            continue;
+        }
+
+        dejaVus.add(courant);
+
+        for (const [a, b] of connexions) {
+            if (a === courant && !dejaVus.has(b)) {
+                reseau.push([a, b]);
+                aExplorer.push(b);
+            } else if (b === courant && !dejaVus.has(a)) {
+                reseau.push([a, b]);
+                aExplorer.push(a);
+            }
+        }
+    }
+
+    return reseau;
+}
+
+function actualiserReseauRelieBase(joueur) {
+    reseauxReliesBase[joueur] = reseauRelieBase(joueur);
+}
+
+function actualiserTousLesReseauxReliesBase() {
+    for (const joueur of JOUEURS) {
+        actualiserReseauRelieBase(joueur);
+    }
+}
+
+function dessinerReseauRelieBase(connexion, couleur) {
+    const [a, b] = connexion;
+    const n1 = noeud(a);
+    const n2 = noeud(b);
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = couleur;
+
+    ctx.beginPath();
+    ctx.moveTo(n1.x, n1.y);
+    ctx.lineTo(n2.x, n2.y);
+    ctx.stroke();
+}
+
+function connexionDansListe(connexion, liste) {
+    const cle = connexionCle(connexion[0], connexion[1]);
+
+    for (const autre of liste) {
+        if (connexionCle(autre[0], autre[1]) === cle) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function couleurTresClaire(joueur) {
+    if (joueur === "rouge") {
+        return "#ffb3b3";
+    }
+
+    if (joueur === "vert") {
+        return "#b8e0c0";
+    }
+
+    return "#eeeeee";
+}
+
+function dessinerConnexionTripletNonReliee(connexion, joueur) {
+    const [a, b] = connexion;
+    const n1 = noeud(a);
+    const n2 = noeud(b);
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = couleurTresClaire(joueur);
+
+    ctx.beginPath();
+    ctx.moveTo(n1.x, n1.y);
+    ctx.lineTo(n2.x, n2.y);
+    ctx.stroke();
+}
+
+function dessinerTriplet(triple, couleur) {
+    for (const milieu of triple) {
+        const autres = triple.filter(x => x !== milieu);
+
+        if (
+            voisins(milieu).includes(autres[0]) &&
+            voisins(milieu).includes(autres[1])
+        ) {
+            const nMilieu = noeud(milieu);
+            const nA = noeud(autres[0]);
+            const nB = noeud(autres[1]);
+
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = couleur;
+
+            ctx.beginPath();
+            ctx.moveTo(nMilieu.x, nMilieu.y);
+            ctx.lineTo(nA.x, nA.y);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(nMilieu.x, nMilieu.y);
+            ctx.lineTo(nB.x, nB.y);
+            ctx.stroke();
+
+            return;
+        }
+    }
+}
+
+// =====================================================
+// ACTIONS
+// =====================================================
+
+function poser(pos) {
+    const e = etat[pos];
+    const joueur = joueurActif;
+
+    if (e.type === "base") {
+        message = "Impossible de poser sur une base.";
+        return;
+    }
+
+    if (e.owner === joueur) {
+        message = "Déjà à toi.";
+        return;
+    }
+
+    if (stock[joueur] <= 0) {
+        message = "Plus de relais.";
+        return;
+    }
+
+    if (!adjacentReseauActif(pos, joueur)) {
+        message = "Pose impossible : pas relié au réseau actif.";
+        return;
+    }
+
+    const ancienOwner = e.owner;
+
+    e.owner = joueur;
+    e.dernierOwner = joueur;
+
+    stock[joueur] -= 1;
+
+    if (estJoueur(ancienOwner)) {
+        stock[ancienOwner] += 1;
+    }
+
+    recalculerReseaux();
+    actualiserTousLesTriplets();
+
+    if (estJoueur(ancienOwner)) {
+        message = `Relais ${ancienOwner} capturé.`;
+    } else {
+        message = "Relais posé.";
+    }
+
+    changerJoueur();
+    selection = null;
+    message += ` À ${joueurActif} de jouer.`;
+}
+
+function deplacer(depart, arrivee) {
+    const joueur = joueurActif;
+
+    if (!voisins(depart).includes(arrivee)) {
+        message = "Déplacement impossible : destination non voisine.";
+        return;
+    }
+
+    if (etat[depart].owner !== joueur) {
+        message = "Ce relais n'est pas à toi.";
+        return;
+    }
+
+    if (etat[depart].type === "base") {
+        message = "Impossible de déplacer une base.";
+        return;
+    }
+
+    const ancienOwner = etat[arrivee].owner;
+
+    if (ancienOwner === joueur) {
+        message = "Case déjà à toi.";
+        return;
+    }
+
+    etat[arrivee].owner = joueur;
+    etat[arrivee].dernierOwner = joueur;
+
+    etat[depart].owner = null;
+    etat[depart].dernierOwner = null;
+    etat[depart].actif = false;
+
+    if (estJoueur(ancienOwner)) {
+        stock[ancienOwner] += 1;
+    }
+
+    recalculerReseaux();
+    actualiserTousLesTriplets();
+
+    if (estJoueur(ancienOwner)) {
+        message = `Déplacement avec capture d'un relais ${ancienOwner}.`;
+    } else {
+        message = "Relais déplacé.";
+    }
+
+    changerJoueur();
+    selection = null;
+    message += ` À ${joueurActif} de jouer.`;
+}
+
+
+function retirer(pos) {
+    const e = etat[pos];
+    const joueur = joueurActif;
+
+    if (e.type === "base") {
+        message = "Impossible de retirer une base.";
+        return;
+    }
+
+    if (e.owner !== joueur) {
+        message = "Ce relais n'est pas à toi.";
+        return;
+    }
+
+    e.owner = null;
+    e.dernierOwner = null;
+    e.actif = false;
+
+    stock[joueur] += 1;
+
+    recalculerReseaux();
+    actualiserTousLesTriplets();
+
+    changerJoueur();
+    selection = null;
+    message = `Relais retiré. À ${joueurActif} de jouer.`;
+}
+
+// =====================================================
+// MODES
+// =====================================================
+
+function choisirAction(action) {
+    modeAction = action;
+    selection = null;
+    message = `Action : ${action}`;
+    rafraichirBoutons();
+    dessiner();
+}
+
+function rafraichirBoutons() {
+    btnPoser.classList.remove("actif");
+    btnDeplacer.classList.remove("actif");
+    btnRetirer.classList.remove("actif");
+
+    if (modeAction === "poser") {
+        btnPoser.classList.add("actif");
+    } else if (modeAction === "deplacer") {
+        btnDeplacer.classList.add("actif");
+    } else if (modeAction === "retirer") {
+        btnRetirer.classList.add("actif");
+    }
+}
+
+btnPoser.addEventListener("click", () => choisirAction("poser"));
+btnDeplacer.addEventListener("click", () => choisirAction("deplacer"));
+btnRetirer.addEventListener("click", () => choisirAction("retirer"));
+
+// =====================================================
+// SOURIS
+// =====================================================
+
+function trouverNoeudClique(x, y) {
+    for (const n of noeuds) {
+        const dx = x - n.x;
+        const dy = y - n.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 22) {
+            return n.id;
+        }
+    }
+
+    return null;
+}
+
+canvas.addEventListener("click", function(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    const pos = trouverNoeudClique(x, y);
+
+    if (pos === null) {
+        return;
+    }
+
+    if (modeAction === "poser") {
+        selection = pos;
+        poser(pos);
+    }
+
+    else if (modeAction === "deplacer") {
+        if (selection === null) {
+            if (
+                etat[pos].owner === joueurActif &&
+                etat[pos].type !== "base"
+            ) {
+                selection = pos;
+                message = "Choisis une destination voisine.";
+            } else {
+                message = "Choisis un relais à toi.";
+            }
+        } else {
+            deplacer(selection, pos);
+        }
+    }
+
+    else if (modeAction === "retirer") {
+        selection = pos;
+        retirer(pos);
+    }
+
+    dessiner();
+});
+
+
+// =====================================================
+// PION DE TÊTE
+// =====================================================
+
+function pionDeTete(joueur) {
+    const reseau = reseauxReliesBase[joueur];
+
+    if (reseau.length === 0) {
+        return null;
+    }
+
+    const noeudsReseau = new Set();
+
+    for (const [a, b] of reseau) {
+        noeudsReseau.add(a);
+        noeudsReseau.add(b);
+    }
+
+    let meilleur = null;
+
+    for (const identifiant of noeudsReseau) {
+        if (meilleur === null) {
+            meilleur = identifiant;
+            continue;
+        }
+
+        const n = noeud(identifiant);
+        const nMeilleur = noeud(meilleur);
+
+        if (joueur === "vert") {
+            if (n.row > nMeilleur.row) {
+                meilleur = identifiant;
+            }
+        } else {
+            if (n.row < nMeilleur.row) {
+                meilleur = identifiant;
+            }
+        }
+    }
+
+    return meilleur;
+}
+
+function dessinerPionDeTete(identifiant) {
+    if (identifiant === null) {
+        return;
+    }
+
+    const n = noeud(identifiant);
+
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 24, 0, Math.PI * 2);
+    ctx.fillStyle = "#99ccff";
+    ctx.fill();
+}
+
+// =====================================================
+// DESSIN
+// =====================================================
+
+function dessiner() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // routes
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#cccccc";
+
+    for (const [a, b] of routes) {
+        const n1 = noeud(a);
+        const n2 = noeud(b);
+
+        ctx.beginPath();
+        ctx.moveTo(n1.x, n1.y);
+        ctx.lineTo(n2.x, n2.y);
+        ctx.stroke();
+    }
+
+    // connexions issues des triplets NON reliées à la base
+    // affichées en rouge/vert très clair
+    for (const joueur of JOUEURS) {
+        for (const connexion of connexionsTriplets[joueur]) {
+            if (!connexionDansListe(connexion, reseauxReliesBase[joueur])) {
+                dessinerConnexionTripletNonReliee(connexion, joueur);
+            }
+        }
+    }
+
+    // réseau de triplets relié à la base
+    // affiché en couleur nette
+    for (const joueur of JOUEURS) {
+        for (const connexion of reseauxReliesBase[joueur]) {
+            dessinerReseauRelieBase(connexion, COULEURS[joueur]);
+        }
+    }
+
+    // les triplets non reliés sont dessinés en traits fins ci-dessus
+    // le réseau relié à la base est dessiné en traits nets ci-dessus
+
+// pions de tête en arrière-plan
+    dessinerPionDeTete(pionDeTete("rouge"));
+    dessinerPionDeTete(pionDeTete("vert"));
+
+    // noeuds
+    for (const n of noeuds) {
+        const e = etat[n.id];
+
+        let rayon = 12;
+        let couleurFond = "white";
+        let couleurContour = "black";
+
+        if (e.type === "base") {
+            rayon = 20;
+        }
+
+        if (e.owner === "rouge") {
+            if (e.actif) {
+                couleurFond = COULEURS.rouge;
+                couleurContour = COULEURS.rouge;
+            } else {
+                couleurFond = "#ffb3b3";
+                couleurContour = "#ffb3b3";
+            }
+        } else if (e.owner === "vert") {
+            if (e.actif) {
+                couleurFond = COULEURS.vert;
+                couleurContour = COULEURS.vert;
+            } else {
+                couleurFond = "#8fd19e";
+                couleurContour = "#8fd19e";
+            }
+        }
+
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, rayon, 0, Math.PI * 2);
+        ctx.fillStyle = couleurFond;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = couleurContour;
+        ctx.stroke();
+
+        ctx.fillStyle = "black";
+        ctx.font = "bold 10px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(n.id), n.x, n.y - 18);
+
+        if (n.id === selection) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 30, 0, Math.PI * 2);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = "blue";
+            ctx.stroke();
+        }
+    }
+
+    document.getElementById("infos").textContent =
+        `Joueur actif : ${joueurActif} | Action : ${modeAction} | Relais rouge : ${stock.rouge} | Relais vert : ${stock.vert} | Tête rouge : ${pionDeTete("rouge") ?? "-"} | Tête verte : ${pionDeTete("vert") ?? "-"}`;
+
+    document.getElementById("message").textContent = message;
+    document.getElementById("message").style.color = COULEURS[joueurActif];
+}
+
+// =====================================================
+// LANCEMENT
+// =====================================================
+
+rafraichirRelaisAffiche();
+genererGraphe();
+initialiserPartie();
+
+</script>
+
+</body>
+</html>
