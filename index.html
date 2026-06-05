@@ -107,14 +107,14 @@
     <h3>Règles du jeu</h3>
 
     <ul>
-        <li>Le but du jeu est de relier sa base à la ligne de base (de ,départ) du joueur adverse.</li>
-        <li>Pour progresser vers la ligne adverse, un pion doit rester relié à sa base par la chaîne d’attaque de son joueur.</li>
-        <li>Un pion peut se poser, se déplacer ou être retiré, toujours par clic gauche pour le désigner et clic droit pour le déposer.</li>
-        <li>La chaîne d’attaque est la plus longue suite continue de segments validés reliant un pion à sa base.</li>
+        <li>Le but du jeu est de capturer la base adverse en y posant un pion dessus.</li>
+        <li>Pour atteindre la base adverse, un pion doit rester relié à sa propre base par une chaîne de segments adjacents (ligne d'attaque).</li>
+        <li>Un pion peut se poser, se déplacer de une case (sauf en diagonale) ou être retiré, toujours par clic gauche pour le désigner et clic droit pour le déposer.</li>
         <li>Un alignement de trois pions d’une même couleur valide les segments qui les relient.</li>
-        <li>Le pion en tête de la ligne d’attaque, donc le plus proche de la ligne adverse, est sur fond bleu.</li>
-        <li>Les pions peuvent quitter la chaîne d’attaque, se déplacer ou être retirés librement. Un pion retiré est restitué dans le quota de pions de départ.</li>
-        <li>Un pion peut se poser sur un pion adverse et peut couper ainsi la liaison du pion de tête avec sa base. Le pion adverse est restitué dans le quota de départ.</li>
+        <li>Un pion peut prendre un pion adverse en se posant dessus et couper les éventuelles liaisons avec sa base.</li>
+        <li>un pion pris sur sa chaîne d'attaque d'un joueur est restitué dans le quota de départ de ce joueur.</li>
+        <li>un pion pris hors de sa chaîne d'attaque est éliminé.</li>
+        <li>Les bases peuvent accomplir les mêmes actions que les pions avec en plus la possibilité de se déplacer en diagonale </li>
     </ul>
 
     <div style="text-align:center; margin-top:14px;">
@@ -132,7 +132,7 @@ const CONFIG = {
     nb_x: 6,
     nb_y: 6,
     taille: 70,
-    relais_depart: 12
+    relais_depart: 6
 };
 
 const COULEURS = {
@@ -178,7 +178,7 @@ let message = "Rouge commence. Mode poser.";
 function calculerRelaisDepart() {
     const nbY = parseInt(champNbY.value);
     const nbX = parseInt(champNbX.value);
-    return nbY + nbX;
+    return nbY + Math.round(nbX / 3)
 }
 
 function rafraichirRelaisAffiche() {
@@ -191,7 +191,7 @@ champNbX.addEventListener("input", rafraichirRelaisAffiche);
 function appliquerParametres() {
     CONFIG.nb_y = parseInt(champNbY.value);
     CONFIG.nb_x = parseInt(champNbX.value);
-    CONFIG.relais_depart = CONFIG.nb_y + CONFIG.nb_x;
+    CONFIG.relais_depart = CONFIG.nb_y;
     rafraichirRelaisAffiche();
 
     canvas.width = (CONFIG.nb_x + 2) * CONFIG.taille;
@@ -653,7 +653,27 @@ function poser(pos) {
     const joueur = joueurActif;
 
     if (e.type === "base") {
-        message = "Impossible de poser sur une base.";
+
+        if (e.owner === joueur) {
+            message = "C'est déjà ta base.";
+            return;
+        }
+
+        if (!adjacentReseauActif(pos, joueur)) {
+            message = "Pose impossible : pas relié au réseau actif.";
+            return;
+        }
+
+        e.owner = joueur;
+        e.dernierOwner = joueur;
+
+        recalculerReseaux();
+        actualiserTousLesTriplets();
+
+        message = `La base ${joueur === "rouge" ? "verte" : "rouge"} est conquise. Victoire de ${joueur}.`;
+
+        selection = null;
+
         return;
     }
 
@@ -679,7 +699,14 @@ function poser(pos) {
 
     stock[joueur] -= 1;
 
-    if (estJoueur(ancienOwner)) {
+    //if (estJoueur(ancienOwner)) {
+        //stock[ancienOwner] += 1;
+    //}
+    
+    if (
+        estJoueur(ancienOwner) &&
+        etat[pos]?.actif
+    ) {
         stock[ancienOwner] += 1;
     }
 
@@ -700,9 +727,25 @@ function poser(pos) {
 function deplacer(depart, arrivee) {
     const joueur = joueurActif;
 
+    const departEstBase = etat[depart].type === "base";
+
     if (!voisins(depart).includes(arrivee)) {
-        message = "Déplacement impossible : destination non voisine.";
-        return;
+
+        if (!departEstBase) {
+            message = "Déplacement impossible : destination non voisine.";
+            return;
+        }
+
+        const nDepart = noeud(depart);
+        const nArrivee = noeud(arrivee);
+
+       const ecartLigne = Math.abs(nDepart.row - nArrivee.row);
+        const ecartColonne = Math.abs(nDepart.col - nArrivee.col);
+
+        if (!(ecartLigne === 1 && ecartColonne === 1)) {
+            message = "Déplacement impossible : la base ne peut se déplacer qu'en voisin ou en diagonale.";
+            return;
+        }
     }
 
     if (etat[depart].owner !== joueur) {
@@ -710,26 +753,46 @@ function deplacer(depart, arrivee) {
         return;
     }
 
-    if (etat[depart].type === "base") {
-        message = "Impossible de déplacer une base.";
-        return;
-    }
-
     const ancienOwner = etat[arrivee].owner;
 
-    if (ancienOwner === joueur) {
-        message = "Case déjà à toi.";
+    if (
+        departEstBase &&
+        etat[arrivee].type === "base" &&
+        ancienOwner !== joueur
+    ) {
+        etat[arrivee].owner = joueur;
+        etat[arrivee].dernierOwner = joueur;
+
+       recalculerReseaux();
+        actualiserTousLesTriplets();
+
+        message = `La base ${joueur === "rouge" ? "verte" : "rouge"} est conquise. Victoire de ${joueur}.`;
+
+        selection = null;
         return;
     }
 
+    etat[arrivee].type = etat[depart].type;
     etat[arrivee].owner = joueur;
     etat[arrivee].dernierOwner = joueur;
 
+    etat[depart].type = "normal";
     etat[depart].owner = null;
     etat[depart].dernierOwner = null;
     etat[depart].actif = false;
 
-    if (estJoueur(ancienOwner)) {
+    if (departEstBase) {
+        if (joueur === "rouge") {
+            baseRouge = arrivee;
+        } else {
+            baseVert = arrivee;
+        }
+    }
+
+    if (
+        estJoueur(ancienOwner) &&
+        etat[arrivee]?.actif
+    ) {
         stock[ancienOwner] += 1;
     }
 
@@ -842,13 +905,11 @@ canvas.addEventListener("click", function(event) {
 
     else if (modeAction === "deplacer") {
         if (selection === null) {
-            if (
-                etat[pos].owner === joueurActif &&
-                etat[pos].type !== "base"
-            ) {
+            if (etat[pos].owner === joueurActif) {
                 selection = pos;
                 message = "Choisis une destination voisine.";
-            } else {
+            }
+            else {
                 message = "Choisis un relais à toi.";
             }
         } else {
@@ -869,6 +930,13 @@ canvas.addEventListener("click", function(event) {
 // PION DE TÊTE
 // =====================================================
 
+function distanceEntreNoeuds(id1, id2) {
+    const n1 = noeud(id1);
+    const n2 = noeud(id2);
+
+    return Math.hypot(n1.x - n2.x, n1.y - n2.y);
+}
+
 function pionDeTete(joueur) {
     const reseau = reseauxReliesBase[joueur];
 
@@ -884,6 +952,7 @@ function pionDeTete(joueur) {
     }
 
     let meilleur = null;
+    const baseAdverse = joueur === "rouge" ? baseVert : baseRouge;
 
     for (const identifiant of noeudsReseau) {
         if (meilleur === null) {
@@ -895,11 +964,23 @@ function pionDeTete(joueur) {
         const nMeilleur = noeud(meilleur);
 
         if (joueur === "vert") {
-            if (n.row > nMeilleur.row) {
+            if (
+                n.row > nMeilleur.row ||
+                (
+                    n.row === nMeilleur.row &&
+                    distanceEntreNoeuds(identifiant, baseAdverse) < distanceEntreNoeuds(meilleur, baseAdverse)
+                )
+            ) {
                 meilleur = identifiant;
             }
         } else {
-            if (n.row < nMeilleur.row) {
+            if (
+                n.row < nMeilleur.row ||
+                (
+                    n.row === nMeilleur.row &&
+                    distanceEntreNoeuds(identifiant, baseAdverse) < distanceEntreNoeuds(meilleur, baseAdverse)
+                )
+            ) {
                 meilleur = identifiant;
             }
         }
@@ -964,8 +1045,8 @@ function dessiner() {
     // le réseau relié à la base est dessiné en traits nets ci-dessus
 
 // pions de tête en arrière-plan
-    dessinerPionDeTete(pionDeTete("rouge"));
-    dessinerPionDeTete(pionDeTete("vert"));
+    // dessinerPionDeTete(pionDeTete("rouge"));
+    // dessinerPionDeTete(pionDeTete("vert"));
 
     // noeuds
     for (const n of noeuds) {
@@ -1021,12 +1102,10 @@ function dessiner() {
     }
 
     document.getElementById("infos").textContent =
-        `Joueur actif : ${joueurActif} | Action : ${modeAction} | Relais rouge : ${stock.rouge} | Relais vert : ${stock.vert} | Tête rouge : ${pionDeTete("rouge") ?? "-"} | Tête verte : ${pionDeTete("vert") ?? "-"}`;
-
+        `Relais rouge : ${stock.rouge} | Relais vert : ${stock.vert}`;
     document.getElementById("message").textContent = message;
     document.getElementById("message").style.color = COULEURS[joueurActif];
-}
-
+    }
 // =====================================================
 // LANCEMENT
 // =====================================================
