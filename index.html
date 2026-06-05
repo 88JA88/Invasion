@@ -191,7 +191,8 @@ champNbX.addEventListener("input", rafraichirRelaisAffiche);
 function appliquerParametres() {
     CONFIG.nb_y = parseInt(champNbY.value);
     CONFIG.nb_x = parseInt(champNbX.value);
-    CONFIG.relais_depart = CONFIG.nb_y;
+    CONFIG.relais_depart =
+        CONFIG.nb_y + Math.round(CONFIG.nb_x / 3);
     rafraichirRelaisAffiche();
 
     canvas.width = (CONFIG.nb_x + 2) * CONFIG.taille;
