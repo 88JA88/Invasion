@@ -172,7 +172,7 @@ let joueurActif = "rouge";
 let selection = null;
 let modeAction = "poser";
 let message = "Rouge commence. Mode poser.";
-
+let bonusLigneAdversePris = { rouge: false, vert: false };
 
 
 function calculerRelaisDepart() {
@@ -344,7 +344,8 @@ function initialiserPartie() {
     selection = null;
     modeAction = "poser";
     message = "Rouge commence. Mode poser.";
-
+    bonusLigneAdversePris = { rouge: false, vert: false };
+    
     recalculerReseaux();
     actualiserTousLesTriplets();
     rafraichirBoutons();
@@ -648,6 +649,25 @@ function dessinerTriplet(triple, couleur) {
 // =====================================================
 // ACTIONS
 // =====================================================
+function verifierBonusLigneAdverse(joueur, pos) {
+    const n = noeud(pos);
+
+    if (bonusLigneAdversePris[joueur]) {
+        return;
+    }
+
+    if (joueur === "rouge" && n.row === 0) {
+        stock[joueur] = CONFIG.relais_depart;
+        bonusLigneAdversePris[joueur] = true;
+        message += ` Bonus : relais rouge remis à ${CONFIG.relais_depart}.`;
+    }
+
+    if (joueur === "vert" && n.row === CONFIG.nb_y) {
+        stock[joueur] = CONFIG.relais_depart;
+        bonusLigneAdversePris[joueur] = true;
+        message += ` Bonus : relais vert remis à ${CONFIG.relais_depart}.`;
+    }
+}
 
 function poser(pos) {
     const e = etat[pos];
@@ -719,6 +739,8 @@ function poser(pos) {
     } else {
         message = "Relais posé.";
     }
+    
+    verifierBonusLigneAdverse(joueur, pos);
 
     changerJoueur();
     selection = null;
@@ -805,7 +827,8 @@ function deplacer(depart, arrivee) {
     } else {
         message = "Relais déplacé.";
     }
-
+    verifierBonusLigneAdverse(joueur, arrivee);
+    
     changerJoueur();
     selection = null;
     message += ` À ${joueurActif} de jouer.`;
