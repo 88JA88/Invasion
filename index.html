@@ -109,12 +109,13 @@
     <ul>
         <li>Le but du jeu est de capturer la base adverse en y posant un pion dessus.</li>
         <li>Pour atteindre la base adverse, un pion doit rester relié à sa propre base par une chaîne de segments adjacents (ligne d'attaque).</li>
-        <li>Un pion peut se poser, se déplacer de une case (sauf en diagonale) ou être retiré, toujours par clic gauche pour le désigner et clic droit pour le déposer.</li>
-        <li>Un alignement de trois pions d’une même couleur valide les segments qui les relient.</li>
+        <li>Un pion peut se poser, se déplacer sur un relais voisin (sauf en diagonale) ou être retiré, toujours par clic gauche pour le désigner et clic droit pour le déposer.</li>
+        <li>Un pion ne peut se poser que sur un relais vosin de la ligne d'attaque .</li>
         <li>Un pion peut prendre un pion adverse en se posant dessus et couper les éventuelles liaisons avec sa base.</li>
         <li>un pion pris sur sa chaîne d'attaque d'un joueur est restitué dans le quota de départ de ce joueur.</li>
         <li>un pion pris hors de sa chaîne d'attaque est éliminé.</li>
-        <li>un pion un pion qui atteint la ligne adverse régénère le quota de pions du joueur (une seule fois par partie).</li>
+        <li>un pion pris et repris par l'adversaire ne peut pas se reprendre au coup suivant.</li>
+        <li>un pion qui atteint la ligne adverse régénère le quota de pions du joueur (une seule fois par partie).</li>
         <li>Les bases peuvent accomplir les mêmes actions que les pions avec en plus la possibilité de se déplacer en diagonale </li>
     </ul>
 
@@ -166,15 +167,18 @@ let baseVert = null;
 
 let etat = {};
 let stock = {};
-let tripletsValides = { rouge: [], vert: [] };
-let connexionsTriplets = { rouge: [], vert: [] };
+//let tripletsValides = { rouge: [], vert: [] };
+//let connexionsTriplets = { rouge: [], vert: [] };
 let reseauxReliesBase = { rouge: [], vert: [] };
 let joueurActif = "rouge";
 let selection = null;
 let modeAction = "poser";
 let message = "Rouge commence. Mode poser.";
 let bonusLigneAdversePris = { rouge: false, vert: false };
-
+let derniereCapture = {
+    rouge: null,
+    vert: null
+};
 
 function calculerRelaisDepart() {
     const nbY = parseInt(champNbY.value);
@@ -302,21 +306,15 @@ function voisins(id) {
 // =====================================================
 
 function initialiserPartie() {
+    derniereCapture = {
+        rouge: null,
+        vert: null
+    };
     etat = {};
 
     stock = {
         rouge: CONFIG.relais_depart,
         vert: CONFIG.relais_depart
-    };
-
-    tripletsValides = {
-        rouge: [],
-        vert: []
-    };
-
-    connexionsTriplets = {
-        rouge: [],
-        vert: []
     };
 
     reseauxReliesBase = {
@@ -348,7 +346,7 @@ function initialiserPartie() {
     bonusLigneAdversePris = { rouge: false, vert: false };
     
     recalculerReseaux();
-    actualiserTousLesTriplets();
+    actualiserTousLesReseauxReliesBase();
     rafraichirBoutons();
     dessiner();
 }
@@ -417,115 +415,9 @@ function estJoueur(couleur) {
 
 // =====================================================
 // TRIPLETS
-// =====================================================
-
-function chercherTriplets(joueur) {
-    const pions = [];
-
-    for (const id in etat) {
-        if (etat[id].owner === joueur) {
-            pions.push(Number(id));
-        }
-    }
-
-    const triplets = [];
-    const deja = new Set();
-
-    for (const a of pions) {
-        for (const b of pions) {
-            for (const c of pions) {
-
-                if (new Set([a, b, c]).size < 3) {
-                    continue;
-                }
-
-                if (
-                    voisins(a).includes(b) &&
-                    voisins(b).includes(c)
-                ) {
-                    const triple = [a, b, c].sort((x, y) => x - y);
-                    const cle = triple.join("-");
-
-                    if (!deja.has(cle)) {
-                        deja.add(cle);
-                        triplets.push(triple);
-                    }
-                }
-            }
-        }
-    }
-
-    return triplets;
-}
-
-function actualiserTripletsValides(joueur) {
-    tripletsValides[joueur] = chercherTriplets(joueur);
-}
-
-function actualiserTousLesTriplets() {
-    for (const joueur of JOUEURS) {
-        actualiserTripletsValides(joueur);
-    }
-
-    actualiserToutesLesConnexionsTriplets();
-}
-
-function connexionCle(a, b) {
-    const x = Math.min(a, b);
-    const y = Math.max(a, b);
-    return `${x}-${y}`;
-}
-
-function connexionsDepuisTriplets(joueur) {
-    const connexions = [];
-    const deja = new Set();
-
-    for (const triple of tripletsValides[joueur]) {
-        const [a, b, c] = triple;
-
-        if (voisins(a).includes(b)) {
-            const cle = connexionCle(a, b);
-            if (!deja.has(cle)) {
-                deja.add(cle);
-                connexions.push([Math.min(a, b), Math.max(a, b)]);
-            }
-        }
-
-        if (voisins(b).includes(c)) {
-            const cle = connexionCle(b, c);
-            if (!deja.has(cle)) {
-                deja.add(cle);
-                connexions.push([Math.min(b, c), Math.max(b, c)]);
-            }
-        }
-
-        if (voisins(a).includes(c)) {
-            const cle = connexionCle(a, c);
-            if (!deja.has(cle)) {
-                deja.add(cle);
-                connexions.push([Math.min(a, c), Math.max(a, c)]);
-            }
-        }
-    }
-
-    return connexions;
-}
-
-function actualiserConnexionsTriplets(joueur) {
-    connexionsTriplets[joueur] = connexionsDepuisTriplets(joueur);
-}
-
-function actualiserToutesLesConnexionsTriplets() {
-    for (const joueur of JOUEURS) {
-        actualiserConnexionsTriplets(joueur);
-    }
-
-    actualiserTousLesReseauxReliesBase();
-}
+// ===================================================== 
 
 function reseauRelieBase(joueur) {
-    const connexions = connexionsTriplets[joueur];
-
     const base = joueur === "rouge" ? baseRouge : baseVert;
 
     const reseau = [];
@@ -541,13 +433,17 @@ function reseauRelieBase(joueur) {
 
         dejaVus.add(courant);
 
-        for (const [a, b] of connexions) {
-            if (a === courant && !dejaVus.has(b)) {
-                reseau.push([a, b]);
-                aExplorer.push(b);
-            } else if (b === courant && !dejaVus.has(a)) {
-                reseau.push([a, b]);
-                aExplorer.push(a);
+        for (const v of voisins(courant)) {
+            if (
+                etat[v].owner === joueur &&
+                !dejaVus.has(v)
+            ) {
+                reseau.push([
+                    Math.min(courant, v),
+                    Math.max(courant, v)
+                ]);
+
+                aExplorer.push(v);
             }
         }
     }
@@ -562,88 +458,6 @@ function actualiserReseauRelieBase(joueur) {
 function actualiserTousLesReseauxReliesBase() {
     for (const joueur of JOUEURS) {
         actualiserReseauRelieBase(joueur);
-    }
-}
-
-function dessinerReseauRelieBase(connexion, couleur) {
-    const [a, b] = connexion;
-    const n1 = noeud(a);
-    const n2 = noeud(b);
-
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = couleur;
-
-    ctx.beginPath();
-    ctx.moveTo(n1.x, n1.y);
-    ctx.lineTo(n2.x, n2.y);
-    ctx.stroke();
-}
-
-function connexionDansListe(connexion, liste) {
-    const cle = connexionCle(connexion[0], connexion[1]);
-
-    for (const autre of liste) {
-        if (connexionCle(autre[0], autre[1]) === cle) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function couleurTresClaire(joueur) {
-    if (joueur === "rouge") {
-        return "#ffb3b3";
-    }
-
-    if (joueur === "vert") {
-        return "#b8e0c0";
-    }
-
-    return "#eeeeee";
-}
-
-function dessinerConnexionTripletNonReliee(connexion, joueur) {
-    const [a, b] = connexion;
-    const n1 = noeud(a);
-    const n2 = noeud(b);
-
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = couleurTresClaire(joueur);
-
-    ctx.beginPath();
-    ctx.moveTo(n1.x, n1.y);
-    ctx.lineTo(n2.x, n2.y);
-    ctx.stroke();
-}
-
-function dessinerTriplet(triple, couleur) {
-    for (const milieu of triple) {
-        const autres = triple.filter(x => x !== milieu);
-
-        if (
-            voisins(milieu).includes(autres[0]) &&
-            voisins(milieu).includes(autres[1])
-        ) {
-            const nMilieu = noeud(milieu);
-            const nA = noeud(autres[0]);
-            const nB = noeud(autres[1]);
-
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = couleur;
-
-            ctx.beginPath();
-            ctx.moveTo(nMilieu.x, nMilieu.y);
-            ctx.lineTo(nA.x, nA.y);
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(nMilieu.x, nMilieu.y);
-            ctx.lineTo(nB.x, nB.y);
-            ctx.stroke();
-
-            return;
-        }
     }
 }
 
@@ -673,7 +487,15 @@ function verifierBonusLigneAdverse(joueur, pos) {
 function poser(pos) {
     const e = etat[pos];
     const joueur = joueurActif;
+    
+    if (derniereCapture[joueur] === pos) {
+        message = "Tu ne peux pas reprendre immédiatement cette même case.";
+        return;
+    }
 
+    // s'il joue ailleurs, l'interdiction disparaît
+    derniereCapture[joueur] = null;
+    
     if (e.type === "base") {
 
         if (e.owner === joueur) {
@@ -682,16 +504,18 @@ function poser(pos) {
         }
 
         if (!adjacentReseauActif(pos, joueur)) {
-            message = "Pose impossible : pas relié au réseau actif.";
+            message = "Pose impossible : pas relié à ta ligne d'attaque.";
             return;
         }
-
+        
+        e.type = "base";
         e.owner = joueur;
         e.dernierOwner = joueur;
 
         recalculerReseaux();
-        actualiserTousLesTriplets();
-
+        //actualiserTousLesTriplets();
+        actualiserTousLesReseauxReliesBase();
+        
         message = `La base ${joueur === "rouge" ? "verte" : "rouge"} est conquise. Victoire de ${joueur}.`;
 
         selection = null;
@@ -710,7 +534,7 @@ function poser(pos) {
     }
 
     if (!adjacentReseauActif(pos, joueur)) {
-        message = "Pose impossible : pas relié au réseau actif.";
+        message = "Pose impossible : pas relié à ta ligne d'attaque.";
         return;
     }
 
@@ -721,20 +545,21 @@ function poser(pos) {
 
     stock[joueur] -= 1;
 
-    //if (estJoueur(ancienOwner)) {
-        //stock[ancienOwner] += 1;
-    //}
-    
     if (
         estJoueur(ancienOwner) &&
         etat[pos]?.actif
     ) {
         stock[ancienOwner] += 1;
     }
+    
+    if (estJoueur(ancienOwner)) {
+        derniereCapture[joueur] = pos;
+    }
 
     recalculerReseaux();
-    actualiserTousLesTriplets();
-
+    //actualiserTousLesTriplets();
+    actualiserTousLesReseauxReliesBase();
+    
     if (estJoueur(ancienOwner)) {
         message = `Relais ${ancienOwner} capturé.`;
     } else {
@@ -788,8 +613,9 @@ function deplacer(depart, arrivee) {
         etat[arrivee].dernierOwner = joueur;
 
        recalculerReseaux();
-        actualiserTousLesTriplets();
-
+        //actualiserTousLesTriplets();
+       actualiserTousLesReseauxReliesBase();
+       
         message = `La base ${joueur === "rouge" ? "verte" : "rouge"} est conquise. Victoire de ${joueur}.`;
 
         selection = null;
@@ -821,8 +647,9 @@ function deplacer(depart, arrivee) {
     }
 
     recalculerReseaux();
-    actualiserTousLesTriplets();
-
+    //actualiserTousLesTriplets();
+    actualiserTousLesReseauxReliesBase();
+    
     if (estJoueur(ancienOwner)) {
         message = `Déplacement avec capture d'un relais ${ancienOwner}.`;
     } else {
@@ -857,8 +684,9 @@ function retirer(pos) {
     stock[joueur] += 1;
 
     recalculerReseaux();
-    actualiserTousLesTriplets();
-
+    //actualiserTousLesTriplets();
+    actualiserTousLesReseauxReliesBase();
+    
     changerJoueur();
     selection = null;
     message = `Relais retiré. À ${joueurActif} de jouer.`;
@@ -950,87 +778,32 @@ canvas.addEventListener("click", function(event) {
     dessiner();
 });
 
-
-// =====================================================
-// PION DE TÊTE
-// =====================================================
-
-function distanceEntreNoeuds(id1, id2) {
-    const n1 = noeud(id1);
-    const n2 = noeud(id2);
-
-    return Math.hypot(n1.x - n2.x, n1.y - n2.y);
-}
-
-function pionDeTete(joueur) {
-    const reseau = reseauxReliesBase[joueur];
-
-    if (reseau.length === 0) {
-        return null;
-    }
-
-    const noeudsReseau = new Set();
-
-    for (const [a, b] of reseau) {
-        noeudsReseau.add(a);
-        noeudsReseau.add(b);
-    }
-
-    let meilleur = null;
-    const baseAdverse = joueur === "rouge" ? baseVert : baseRouge;
-
-    for (const identifiant of noeudsReseau) {
-        if (meilleur === null) {
-            meilleur = identifiant;
-            continue;
-        }
-
-        const n = noeud(identifiant);
-        const nMeilleur = noeud(meilleur);
-
-        if (joueur === "vert") {
-            if (
-                n.row > nMeilleur.row ||
-                (
-                    n.row === nMeilleur.row &&
-                    distanceEntreNoeuds(identifiant, baseAdverse) < distanceEntreNoeuds(meilleur, baseAdverse)
-                )
-            ) {
-                meilleur = identifiant;
-            }
-        } else {
-            if (
-                n.row < nMeilleur.row ||
-                (
-                    n.row === nMeilleur.row &&
-                    distanceEntreNoeuds(identifiant, baseAdverse) < distanceEntreNoeuds(meilleur, baseAdverse)
-                )
-            ) {
-                meilleur = identifiant;
-            }
-        }
-    }
-
-    return meilleur;
-}
-
-function dessinerPionDeTete(identifiant) {
-    if (identifiant === null) {
-        return;
-    }
-
-    const n = noeud(identifiant);
-
-    ctx.beginPath();
-    ctx.arc(n.x, n.y, 24, 0, Math.PI * 2);
-    ctx.fillStyle = "#99ccff";
-    ctx.fill();
-}
-
 // =====================================================
 // DESSIN
 // =====================================================
+function dessinerSegmentsVoisins() {
+    for (const [a, b] of routes) {
+        const ea = etat[a];
+        const eb = etat[b];
 
+        if (
+            ea.owner !== null &&
+            ea.owner === eb.owner
+        ) {
+            const n1 = noeud(a);
+            const n2 = noeud(b);
+
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = COULEURS[ea.owner];
+
+            ctx.beginPath();
+            ctx.moveTo(n1.x, n1.y);
+            ctx.lineTo(n2.x, n2.y);
+            ctx.stroke();
+        }
+    }
+}
+    
 function dessiner() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1048,23 +821,7 @@ function dessiner() {
         ctx.stroke();
     }
 
-    // connexions issues des triplets NON reliées à la base
-    // affichées en rouge/vert très clair
-    for (const joueur of JOUEURS) {
-        for (const connexion of connexionsTriplets[joueur]) {
-            if (!connexionDansListe(connexion, reseauxReliesBase[joueur])) {
-                dessinerConnexionTripletNonReliee(connexion, joueur);
-            }
-        }
-    }
-
-    // réseau de triplets relié à la base
-    // affiché en couleur nette
-    for (const joueur of JOUEURS) {
-        for (const connexion of reseauxReliesBase[joueur]) {
-            dessinerReseauRelieBase(connexion, COULEURS[joueur]);
-        }
-    }
+dessinerSegmentsVoisins();
 
     // les triplets non reliés sont dessinés en traits fins ci-dessus
     // le réseau relié à la base est dessiné en traits nets ci-dessus
