@@ -85,6 +85,10 @@
     <button id="btnDeplacer">Déplacer</button>
     <button id="btnRetirer">Retirer</button>
     <button id="btnRegles">Règles du jeu</button>
+    <button id="btnCreerDistance">Créer partie distante</button>
+    <button id="btnRejoindreDistance">Rejoindre partie</button>
+    <input id="codePartie" placeholder="Code partie" style="width:100px;">
+    <span id="etatConnexion"></span>
 </div>
 
 <div id="parametres" style="margin: 10px 0;">
@@ -98,6 +102,7 @@
     <span id="affichage_relais" style="display:inline-block; width:35px; font-weight:bold;">12</span>
 
     <button id="btnAppliquer">Créer la partie</button>
+    <button id="btnReinitialiser">Réinitialiser</button>
 </div>
 
 
@@ -129,7 +134,32 @@
 <div id="infos"></div>
 <div id="message"></div>
 
-<script>
+<script type="module">
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+import {
+    getDatabase,
+    ref,
+    set,
+    get,
+    onValue,
+    update
+}
+from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyCNOujBHAg7jGD0Dbhbj3DerKBFjxZhIek",
+    authDomain: "numbers-49091.firebaseapp.com",
+    databaseURL: "https://numbers-49091-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "numbers-49091",
+    storageBucket: "numbers-49091.firebasestorage.app",
+    messagingSenderId: "762941555289",
+    appId: "1:762941555289:web:c6c4b563dc437cb4a26748"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 const CONFIG = {
     nb_x: 6,
     nb_y: 6,
@@ -155,10 +185,81 @@ const btnFermerRegles = document.getElementById("btnFermerRegles");
 const fenetreRegles = document.getElementById("fenetreRegles");
 const fondRegles = document.getElementById("fondRegles");
 const btnAppliquer = document.getElementById("btnAppliquer");
+const btnReinitialiser = document.getElementById("btnReinitialiser");
 const champNbY = document.getElementById("champ_nb_y");
 const champNbX = document.getElementById("champ_nb_x");
 const affichageRelais = document.getElementById("affichage_relais");
+const btnCreerDistance = document.getElementById("btnCreerDistance");
+const btnRejoindreDistance = document.getElementById("btnRejoindreDistance");
+const champCodePartie = document.getElementById("codePartie");
+const etatConnexion = document.getElementById("etatConnexion");
 
+btnCreerDistance.addEventListener("click", async () => {
+    codePartieActuelle = creerCodePartie();
+    etatConnexion.textContent = "Création : " + codePartieActuelle;
+    modeDistance = true;
+    monJoueurDistance = "rouge";
+
+    await set(
+        ref(db, "invasion/" + codePartieActuelle),
+        {
+            creeeLe: Date.now(),
+            nb_x: CONFIG.nb_x,
+            nb_y: CONFIG.nb_y,
+            relais_depart: CONFIG.relais_depart,
+            joueurActif: joueurActif
+        }
+    );
+
+    etatConnexion.textContent =
+        "Partie : " + codePartieActuelle + " — tu es Rouge";
+    ecouterPartie();
+});
+
+
+
+btnRejoindreDistance.addEventListener("click", async () => {
+
+    const code = champCodePartie.value.trim().toUpperCase();
+
+    if (!code) {
+        etatConnexion.textContent = "Code manquant";
+        return;
+    }
+
+    codePartieActuelle = code;
+    modeDistance = true;
+    monJoueurDistance = "vert";
+
+    const snapshot = await get(ref(db, "invasion/" + code));
+
+    if (!snapshot.exists()) {
+        etatConnexion.textContent = "Partie introuvable";
+        return;
+    }
+
+    const data = snapshot.val();
+
+    CONFIG.nb_x = data.nb_x;
+    CONFIG.nb_y = data.nb_y;
+    CONFIG.relais_depart = data.relais_depart;
+    
+    champNbX.value = CONFIG.nb_x;
+    champNbY.value = CONFIG.nb_y;
+    rafraichirRelaisAffiche();
+
+    canvas.width = (CONFIG.nb_x + 2) * CONFIG.taille;
+    canvas.height = (CONFIG.nb_y + 2) * CONFIG.taille;
+
+    genererGraphe();
+    initialiserPartie();
+
+    etatConnexion.textContent =
+        "Partie : " + code + " — tu es Vert";
+
+    ecouterPartie();
+    });
+    
 let noeuds = [];
 let routes = [];
 let adj = {};
@@ -179,6 +280,41 @@ let derniereCapture = {
     rouge: null,
     vert: null
 };
+let modeDistance = false;
+let codePartieActuelle = null;
+let coupEnReception = false;
+let monJoueurDistance = null;
+
+async function envoyerMessageTest() {
+
+    if (!modeDistance) return;
+
+    await update(
+        ref(db, "invasion/" + codePartieActuelle),
+        {
+            message: {
+                texte: "bonjour",
+                heure: Date.now()
+            }
+        }
+    );
+}
+
+async function envoyerCoup(coup) {
+
+    if (!modeDistance) return;
+    if (coupEnReception) return;
+    
+    await update(
+        ref(db, "invasion/" + codePartieActuelle),
+        {
+            message: {
+                ...coup,
+                emetteur: monJoueurDistance
+            }
+        }
+    );
+}
 
 function calculerRelaisDepart() {
     const nbY = parseInt(champNbY.value);
@@ -209,6 +345,45 @@ function appliquerParametres() {
 
 btnAppliquer.addEventListener("click", appliquerParametres);
 
+async function reinitialiserPartie() {
+    CONFIG.nb_y = parseInt(champNbY.value);
+    CONFIG.nb_x = parseInt(champNbX.value);
+    CONFIG.relais_depart =
+        CONFIG.nb_y + Math.round(CONFIG.nb_x / 3);
+    rafraichirRelaisAffiche();
+
+    canvas.width = (CONFIG.nb_x + 2) * CONFIG.taille;
+    canvas.height = (CONFIG.nb_y + 2) * CONFIG.taille;
+
+    genererGraphe();
+    initialiserPartie();
+
+    message = "Partie réinitialisée. Rouge commence.";
+    dessiner();
+
+    if (modeDistance && codePartieActuelle) {
+        await update(
+            ref(db, "invasion/" + codePartieActuelle),
+            {
+                nb_x: CONFIG.nb_x,
+                nb_y: CONFIG.nb_y,
+                relais_depart: CONFIG.relais_depart,
+                joueurActif: joueurActif,
+                message: {
+                    action: "reinitialiser",
+                    emetteur: monJoueurDistance,
+                    nb_x: CONFIG.nb_x,
+                    nb_y: CONFIG.nb_y,
+                    relais_depart: CONFIG.relais_depart,
+                    heure: Date.now()
+                }
+            }
+        );
+    }
+}
+
+btnReinitialiser.addEventListener("click", reinitialiserPartie);
+
 
 function ouvrirRegles() {
     fondRegles.style.display = "block";
@@ -218,11 +393,123 @@ function ouvrirRegles() {
 function fermerRegles() {
     fenetreRegles.style.display = "none";
     fondRegles.style.display = "none";
+    envoyerMessageTest();
 }
 
 btnRegles.addEventListener("click", ouvrirRegles);
+btnRegles.addEventListener("dblclick", async () => {
+
+    if (!modeDistance) return;
+
+    await update(
+        ref(db, "invasion/" + codePartieActuelle),
+        {
+            message: {
+                texte: "bonjour",
+                heure: Date.now()
+            }
+        }
+    );
+});
+
 btnFermerRegles.addEventListener("click", fermerRegles);
 fondRegles.addEventListener("click", fermerRegles);
+
+function creerCodePartie() {
+    const lettres = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "";
+
+    for (let i = 0; i < 4; i++) {
+        code += lettres[Math.floor(Math.random() * lettres.length)];
+    }
+
+    return code;
+}
+
+function ecouterPartie() {
+
+    if (!codePartieActuelle) return;
+
+    onValue(
+        ref(db, "invasion/" + codePartieActuelle),
+        function(snapshot) {
+
+            if (!snapshot.exists()) return;
+
+            const data = snapshot.val();
+
+            if (!data.message) return;
+
+            if (data.message.emetteur === monJoueurDistance) {
+                return;
+            }
+
+            if (data.message.action === "reinitialiser") {
+
+                etatConnexion.textContent =
+                    "Partie réinitialisée";
+
+                CONFIG.nb_x = data.message.nb_x;
+                CONFIG.nb_y = data.message.nb_y;
+                CONFIG.relais_depart = data.message.relais_depart;
+
+                champNbX.value = CONFIG.nb_x;
+                champNbY.value = CONFIG.nb_y;
+                rafraichirRelaisAffiche();
+
+                canvas.width = (CONFIG.nb_x + 2) * CONFIG.taille;
+                canvas.height = (CONFIG.nb_y + 2) * CONFIG.taille;
+
+                genererGraphe();
+                initialiserPartie();
+                message = "Partie réinitialisée. Rouge commence.";
+                dessiner();
+                return;
+            }
+
+            if (data.message.action === "poser") {
+
+                etatConnexion.textContent =
+                    "Coup reçu : poser " + data.message.pos;
+
+                coupEnReception = true;
+                poser(data.message.pos);
+                coupEnReception = false;
+
+                dessiner();
+            }
+
+            if (data.message.action === "deplacer") {
+
+                etatConnexion.textContent =
+                    "Coup reçu : déplacement";
+
+                coupEnReception = true;
+
+                deplacer(
+                    data.message.depart,
+                    data.message.arrivee
+                );
+
+                coupEnReception = false;
+
+                dessiner();
+            }
+
+            if (data.message.action === "retirer") {
+
+                etatConnexion.textContent =
+                    "Coup reçu : retirer " + data.message.pos;
+
+                coupEnReception = true;
+                retirer(data.message.pos);
+                coupEnReception = false;
+
+                dessiner();
+            }
+        }
+    );
+}
 
 // =====================================================
 // GRAPHE
@@ -575,11 +862,9 @@ function poser(pos) {
 
 function deplacer(depart, arrivee) {
     const joueur = joueurActif;
-
     const departEstBase = etat[depart].type === "base";
 
     if (!voisins(depart).includes(arrivee)) {
-
         if (!departEstBase) {
             message = "Déplacement impossible : destination non voisine.";
             return;
@@ -587,8 +872,7 @@ function deplacer(depart, arrivee) {
 
         const nDepart = noeud(depart);
         const nArrivee = noeud(arrivee);
-
-       const ecartLigne = Math.abs(nDepart.row - nArrivee.row);
+        const ecartLigne = Math.abs(nDepart.row - nArrivee.row);
         const ecartColonne = Math.abs(nDepart.col - nArrivee.col);
 
         if (!(ecartLigne === 1 && ecartColonne === 1)) {
@@ -604,20 +888,22 @@ function deplacer(depart, arrivee) {
 
     const ancienOwner = etat[arrivee].owner;
 
-    if (
-        departEstBase &&
-        etat[arrivee].type === "base" &&
-        ancienOwner !== joueur
-    ) {
+    // Capture de la base adverse par déplacement.
+    // Elle est autorisée seulement si le relais/base de départ est actif,
+    // donc relié à la base du joueur.
+    if (etat[arrivee].type === "base" && ancienOwner !== joueur) {
+        if (!etat[depart].actif) {
+            message = "Capture impossible : ce relais n'est pas relié à ta base.";
+            return;
+        }
+
         etat[arrivee].owner = joueur;
         etat[arrivee].dernierOwner = joueur;
 
-       recalculerReseaux();
-        //actualiserTousLesTriplets();
-       actualiserTousLesReseauxReliesBase();
-       
-        message = `La base ${joueur === "rouge" ? "verte" : "rouge"} est conquise. Victoire de ${joueur}.`;
+        recalculerReseaux();
+        actualiserTousLesReseauxReliesBase();
 
+        message = `La base ${joueur === "rouge" ? "verte" : "rouge"} est conquise. Victoire de ${joueur}.`;
         selection = null;
         return;
     }
@@ -639,29 +925,25 @@ function deplacer(depart, arrivee) {
         }
     }
 
-    if (
-        estJoueur(ancienOwner) &&
-        etat[arrivee]?.actif
-    ) {
+    if (estJoueur(ancienOwner) && etat[arrivee]?.actif) {
         stock[ancienOwner] += 1;
     }
 
     recalculerReseaux();
-    //actualiserTousLesTriplets();
     actualiserTousLesReseauxReliesBase();
-    
+
     if (estJoueur(ancienOwner)) {
         message = `Déplacement avec capture d'un relais ${ancienOwner}.`;
     } else {
         message = "Relais déplacé.";
     }
+
     verifierBonusLigneAdverse(joueur, arrivee);
-    
+
     changerJoueur();
     selection = null;
     message += ` À ${joueurActif} de jouer.`;
 }
-
 
 function retirer(pos) {
     const e = etat[pos];
@@ -751,13 +1033,35 @@ canvas.addEventListener("click", function(event) {
         return;
     }
 
+	console.log("VERROU TOUR", {
+  	  monJoueurDistance,
+  	  joueurActif,
+   	 modeDistance
+	});
+
+    if (
+        modeDistance &&
+        monJoueurDistance !== joueurActif
+    ) {
+        message = "Ce n'est pas ton tour.";
+        dessiner();
+        return;
+    }
+       
     if (modeAction === "poser") {
         selection = pos;
         poser(pos);
+
+        envoyerCoup({
+            action: "poser",
+            joueur: joueurActif,
+            pos: pos,
+            heure: Date.now()
+        });
     }
 
     else if (modeAction === "deplacer") {
-        if (selection === null) {
+            if (selection === null) {
             if (etat[pos].owner === joueurActif) {
                 selection = pos;
                 message = "Choisis une destination voisine.";
@@ -766,13 +1070,35 @@ canvas.addEventListener("click", function(event) {
                 message = "Choisis un relais à toi.";
             }
         } else {
+
+            const joueurQuiJoue = joueurActif;
+            const depart = selection;
+
             deplacer(selection, pos);
+
+            envoyerCoup({
+                action: "deplacer",
+                joueur: joueurQuiJoue,
+                depart: depart,
+                arrivee: pos,
+                heure: Date.now()
+            });
         }
     }
-
+    
     else if (modeAction === "retirer") {
+
+        const joueurQuiJoue = joueurActif;
+
         selection = pos;
         retirer(pos);
+
+        envoyerCoup({
+           action: "retirer",
+            joueur: joueurQuiJoue,
+            pos: pos,
+            heure: Date.now()
+        });
     }
 
     dessiner();
