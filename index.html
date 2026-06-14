@@ -93,10 +93,10 @@
 
 <div id="parametres" style="margin: 10px 0;">
     Nb. de cases en : Lignes :
-    <input id="champ_nb_y" type="number" value="6" min="3" max="15" style="width:55px;">
+    <input id="champ_nb_y" type="number" value="5" min="3" max="15" style="width:55px;">
 
     Colonnes :
-    <input id="champ_nb_x" type="number" value="6" min="3" max="15" style="width:55px;">
+    <input id="champ_nb_x" type="number" value="4" min="3" max="15" style="width:55px;">
 
     Relais :
     <span id="affichage_relais" style="display:inline-block; width:35px; font-weight:bold;">12</span>
@@ -161,8 +161,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const CONFIG = {
-    nb_x: 6,
-    nb_y: 6,
+    nb_x: 4,
+    nb_y: 5,
     taille: 70,
     relais_depart: 6
 };
