@@ -2,7 +2,9 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Invasion</title>
+<link rel="manifest" href="manifest.webmanifest">
 <style>
     body {
         font-family: Arial, sans-serif;
@@ -86,7 +88,7 @@
     <button id="btnRetirer">Retirer</button>
     <button id="btnRegles">Règles du jeu</button>
     <button id="btnCreerDistance">Créer partie distante</button>
-    <button id="btnRejoindreDistance">Rejoindre partie</button>
+    <button id="btnRejoindreDistance">Rejoindre partie distante</button>
     <input id="codePartie" placeholder="Code partie" style="width:100px;">
     <span id="etatConnexion"></span>
 </div>
@@ -134,19 +136,7 @@
 <div id="infos"></div>
 <div id="message"></div>
 
-<script type="module">
-import { initializeApp }
-from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-
-import {
-    getDatabase,
-    ref,
-    set,
-    get,
-    onValue,
-    update
-}
-from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+<script>
 
 const firebaseConfig = {
     apiKey: "AIzaSyCNOujBHAg7jGD0Dbhbj3DerKBFjxZhIek",
@@ -158,8 +148,41 @@ const firebaseConfig = {
     appId: "1:762941555289:web:c6c4b563dc437cb4a26748"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+let db = null;
+let ref = null;
+let set = null;
+let get = null;
+let onValue = null;
+let update = null;
+let chargementFirebase = null;
+
+async function connecterFirebase() {
+    if (db) return;
+    if (chargementFirebase) return chargementFirebase;
+
+    chargementFirebase = (async () => {
+        const [firebaseApp, firebaseDatabase] = await Promise.all([
+            import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+            import("https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js")
+        ]);
+        const app = firebaseApp.initializeApp(firebaseConfig);
+        db = firebaseDatabase.getDatabase(app);
+        ref = firebaseDatabase.ref;
+        set = firebaseDatabase.set;
+        get = firebaseDatabase.get;
+        onValue = firebaseDatabase.onValue;
+        update = firebaseDatabase.update;
+    })();
+
+    try {
+        await chargementFirebase;
+    } catch (error) {
+        chargementFirebase = null;
+        etatConnexion.textContent =
+            "Jeu distant indisponible : connexion Internet requise";
+        throw error;
+    }
+}
 const CONFIG = {
     nb_x: 4,
     nb_y: 5,
@@ -200,21 +223,36 @@ champCodePartie.addEventListener("keydown", function(event) {
 const etatConnexion = document.getElementById("etatConnexion");
 
 btnCreerDistance.addEventListener("click", async () => {
+    try {
+        await connecterFirebase();
+    } catch {
+        return;
+    }
+
     codePartieActuelle = creerCodePartie();
     etatConnexion.textContent = "Création : " + codePartieActuelle;
     modeDistance = true;
     monJoueurDistance = "rouge";
 
-    await set(
-        ref(db, "invasion/" + codePartieActuelle),
-        {
-            creeeLe: Date.now(),
-            nb_x: CONFIG.nb_x,
-            nb_y: CONFIG.nb_y,
-            relais_depart: CONFIG.relais_depart,
-            joueurActif: joueurActif
-        }
-    );
+    try {
+        await set(
+            ref(db, "invasion/" + codePartieActuelle),
+            {
+                creeeLe: Date.now(),
+                nb_x: CONFIG.nb_x,
+                nb_y: CONFIG.nb_y,
+                relais_depart: CONFIG.relais_depart,
+                joueurActif: joueurActif
+            }
+        );
+    } catch {
+        modeDistance = false;
+        codePartieActuelle = null;
+        monJoueurDistance = null;
+        etatConnexion.textContent =
+            "Jeu distant indisponible : connexion Internet requise";
+        return;
+    }
 
     etatConnexion.textContent =
         "Partie : " + codePartieActuelle + " — tu es Rouge";
@@ -232,16 +270,29 @@ btnRejoindreDistance.addEventListener("click", async () => {
         return;
     }
 
-    codePartieActuelle = code;
-    modeDistance = true;
-    monJoueurDistance = "vert";
+    try {
+        await connecterFirebase();
+    } catch {
+        return;
+    }
 
-    const snapshot = await get(ref(db, "invasion/" + code));
+    let snapshot;
+    try {
+        snapshot = await get(ref(db, "invasion/" + code));
+    } catch {
+        etatConnexion.textContent =
+            "Jeu distant indisponible : connexion Internet requise";
+        return;
+    }
 
     if (!snapshot.exists()) {
         etatConnexion.textContent = "Partie introuvable";
         return;
     }
+
+    codePartieActuelle = code;
+    modeDistance = true;
+    monJoueurDistance = "vert";
 
     const data = snapshot.val();
 
@@ -1226,6 +1277,10 @@ dessinerSegmentsVoisins();
 rafraichirRelaisAffiche();
 genererGraphe();
 initialiserPartie();
+
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js"));
+}
 
 </script>
 

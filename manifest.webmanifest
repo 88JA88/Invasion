@@ -1,0 +1,11 @@
+{
+  "name": "Invasion",
+  "short_name": "Invasion",
+  "description": "Jeu de stratégie local ou à distance.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eeeeee",
+  "theme_color": "#eeeeee"
+}
